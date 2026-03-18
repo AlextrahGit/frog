@@ -1,0 +1,12 @@
+{
+  "name": "frog-flight-miniapp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram Mini App + bot backend for the frog flight game",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22.0.0 <23.0.0"
+  }
+}

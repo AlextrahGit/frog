@@ -1,4 +1,4 @@
-const FLIGHT = {
+const DEFAULT_FLIGHT = {
   id: "doha-istanbul-2026-03-18",
   status: "flying",
   startTime: "2026-03-18T00:10:00+03:00",
@@ -8,9 +8,9 @@ const FLIGHT = {
 };
 
 const STORAGE_KEYS = {
-  leaderboard: `frog-flight:leaderboard:${FLIGHT.id}`,
-  routeUnlocked: `frog-flight:route:${FLIGHT.id}`,
-  currentPlayer: `frog-flight:player:${FLIGHT.id}`,
+  leaderboard: `frog-flight:leaderboard:${DEFAULT_FLIGHT.id}`,
+  routeUnlocked: `frog-flight:route:${DEFAULT_FLIGHT.id}`,
+  currentPlayer: `frog-flight:player:${DEFAULT_FLIGHT.id}`,
 };
 
 const GAME_WORLD = {
@@ -83,9 +83,21 @@ const uiState = {
   pendingStartAfterRegistration: false,
 };
 
+const serverState = {
+  enabled: false,
+  loading: false,
+  user: null,
+  leaderboard: [],
+  myBestScore: 0,
+  routeUnlocked: false,
+  telegramAuthEnabled: false,
+};
+
 const routeState = {
   unlocked: readRouteUnlocked(),
 };
+
+let activeFlight = { ...DEFAULT_FLIGHT };
 
 const gameState = {
   running: false,
@@ -106,9 +118,9 @@ const gameState = {
 };
 
 function getFlightRuntime(now = new Date()) {
-  const start = new Date(FLIGHT.startTime);
-  const end = new Date(FLIGHT.endTime);
-  const isConfiguredFlying = FLIGHT.status === "flying";
+  const start = new Date(activeFlight.startTime);
+  const end = new Date(activeFlight.endTime);
+  const isConfiguredFlying = activeFlight.status === "flying";
   const isActive = isConfiguredFlying && now >= start && now < end;
   const hasEnded = now >= end;
 
@@ -265,8 +277,12 @@ function getTelegramPlayer() {
   return telegramState.user;
 }
 
+function isTelegramAuthRequired() {
+  return serverState.enabled && serverState.telegramAuthEnabled;
+}
+
 function getCurrentPlayer() {
-  return getTelegramPlayer() || loadLocalCurrentPlayer();
+  return serverState.user || getTelegramPlayer() || (isTelegramAuthRequired() ? null : loadLocalCurrentPlayer());
 }
 
 function isTelegramIdentityActive() {
@@ -274,6 +290,15 @@ function isTelegramIdentityActive() {
 }
 
 function loadLeaderboard() {
+  if (serverState.enabled) {
+    return serverState.leaderboard.map((entry) => ({
+      playerId: `tg:${entry.telegramId}`,
+      name: entry.displayName,
+      score: entry.score,
+      achievedAt: entry.achievedAt,
+    }));
+  }
+
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.leaderboard);
     const parsed = raw ? JSON.parse(raw) : [];
@@ -325,6 +350,10 @@ function removeLeaderboardEntry(playerId) {
 }
 
 function getPlayerBest(playerId) {
+  if (serverState.enabled && serverState.user && playerId === serverState.user.id) {
+    return serverState.myBestScore;
+  }
+
   const entry = loadLeaderboard().find((item) => item.playerId === playerId);
   return entry ? entry.score : 0;
 }
@@ -336,6 +365,10 @@ function getPlayerRank(playerId) {
 }
 
 function syncPlayerNameInLeaderboard(player) {
+  if (serverState.enabled) {
+    return;
+  }
+
   if (!player) {
     return;
   }
@@ -351,6 +384,10 @@ function syncPlayerNameInLeaderboard(player) {
 }
 
 function upsertBestScore(player, score) {
+  if (serverState.enabled) {
+    return serverState.myBestScore;
+  }
+
   if (!player) {
     return 0;
   }
@@ -451,14 +488,15 @@ function renderLaunchContext() {
   if (telegramState.isMiniApp) {
     refs.launchBadge.textContent = "Telegram Mini App";
     refs.launchNote.textContent = player
-      ? `Авторизация идёт через Telegram как «${player.name}». Для настоящего общего рейтинга результаты нужно отправлять на backend и проверять initData.`
+      ? `Авторизация идёт через Telegram как «${player.name}» (${roleLabel(player.role || "player")}). Для общего рейтинга используется backend.`
       : "Mini App открыт внутри Telegram, но объект пользователя не передан. Для безопасности оставлен браузерный fallback.";
     return;
   }
 
   refs.launchBadge.textContent = "Browser Preview";
-  refs.launchNote.textContent =
-    "Страницу можно тестировать как обычный сайт, а внутри Telegram профиль будет браться из Mini App.";
+  refs.launchNote.textContent = isTelegramAuthRequired()
+    ? "Сервер ждёт авторизацию через Telegram Mini App. В браузере без Telegram можно только посмотреть интерфейс."
+    : "Страницу можно тестировать как обычный сайт, а внутри Telegram профиль будет браться из Mini App.";
 }
 
 function initializeTelegramMiniApp() {
@@ -505,6 +543,124 @@ function initializeTelegramMiniApp() {
 
   applyTelegramEnvironment();
   renderLaunchContext();
+}
+
+function roleLabel(role) {
+  if (role === "owner") {
+    return "Хозяйка";
+  }
+
+  if (role === "admin") {
+    return "Админ";
+  }
+
+  return "Игрок";
+}
+
+function mapServerUser(user) {
+  if (!user) {
+    return null;
+  }
+
+  return {
+    id: `tg:${user.telegramId}`,
+    name: user.displayName,
+    createdAt: Date.now(),
+    source: "telegram",
+    telegramId: user.telegramId,
+    username: user.username || "",
+    role: user.role || "player",
+  };
+}
+
+function applyServerBootstrap(data) {
+  if (!data || !data.ok) {
+    return;
+  }
+
+  serverState.enabled = Boolean(data.serverMode);
+  serverState.telegramAuthEnabled = Boolean(data.telegramAuthEnabled);
+  serverState.user = mapServerUser(data.user);
+  serverState.leaderboard = Array.isArray(data.leaderboard) ? data.leaderboard : [];
+  serverState.myBestScore = Number.isFinite(data.myBestScore) ? data.myBestScore : 0;
+  serverState.routeUnlocked = Boolean(data.routeUnlocked);
+  routeState.unlocked = serverState.routeUnlocked;
+
+  if (data.currentFlight && data.currentFlight.id) {
+    activeFlight = {
+      id: String(data.currentFlight.id),
+      status: data.currentFlight.status || "resting",
+      startTime: data.currentFlight.startTime,
+      endTime: data.currentFlight.endTime,
+      from: data.currentFlight.from || "",
+      to: data.currentFlight.to || "",
+      notes: data.currentFlight.notes || "",
+    };
+    return;
+  }
+
+  activeFlight = {
+    ...DEFAULT_FLIGHT,
+    id: "rest-mode",
+    status: "resting",
+    startTime: new Date().toISOString(),
+    endTime: new Date().toISOString(),
+    from: "",
+    to: "",
+    notes: "",
+  };
+}
+
+async function postJson(url, payload) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload || {}),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function bootstrapFromServer() {
+  if (serverState.loading) {
+    return;
+  }
+
+  serverState.loading = true;
+
+  try {
+    const initData = telegramState.webApp?.initData || "";
+    const payload = await postJson("/api/bootstrap", {
+      initData,
+    });
+    applyServerBootstrap(payload);
+  } catch (error) {
+    serverState.enabled = false;
+  } finally {
+    serverState.loading = false;
+    renderAll();
+  }
+}
+
+async function submitScoreToServer(score, reason) {
+  const initData = telegramState.webApp?.initData || "";
+  if (!serverState.enabled || !initData) {
+    throw new Error("Server mode is unavailable");
+  }
+
+  const payload = await postJson("/api/game/score", {
+    initData,
+    score,
+    reason,
+  });
+
+  applyServerBootstrap(payload);
 }
 
 function handleTelegramEnvironmentChange() {
@@ -594,14 +750,14 @@ function requestProfileRegistrationForStart() {
   uiState.pendingStartAfterRegistration = true;
   switchTab("profilePanel");
 
-  if (!isTelegramIdentityActive()) {
+  if (!isTelegramIdentityActive() && !isTelegramAuthRequired()) {
     focusRegistrationInput();
   }
 }
 
 function renderRoute() {
   if (routeState.unlocked) {
-    refs.routeText.textContent = `${FLIGHT.from} → ${FLIGHT.to}`;
+    refs.routeText.textContent = `${activeFlight.from} → ${activeFlight.to}`;
     refs.routeNote.textContent = "Маршрут уже открыт. Можно продолжать соревноваться за лучший результат.";
     return;
   }
@@ -613,8 +769,10 @@ function renderRoute() {
 function renderCurrentPlayerCard() {
   const player = getCurrentPlayer();
   if (!player) {
-    refs.currentPlayerLabel.textContent = "Профиль не создан";
-    refs.currentPlayerNote.textContent = "Открой вкладку «Профиль», чтобы зарегистрировать игрока.";
+    refs.currentPlayerLabel.textContent = isTelegramAuthRequired() ? "Нужен Telegram-профиль" : "Профиль не создан";
+    refs.currentPlayerNote.textContent = isTelegramAuthRequired()
+      ? "Эта версия игры привязывает игрока к Telegram ID. Открой Mini App внутри Telegram."
+      : "Открой вкладку «Профиль», чтобы зарегистрировать игрока.";
     return;
   }
 
@@ -702,19 +860,31 @@ function renderProfilePanel() {
     const rank = getPlayerRank(player.id);
 
     refs.profileTitle.textContent = "Профиль Telegram";
-    refs.profileText.textContent =
-      "Игрок авторизован через Telegram Mini App. Для настоящего общего рейтинга результаты нужно отправлять на backend и проверять initData на сервере.";
+    refs.profileText.textContent = serverState.enabled
+      ? "Игрок привязан к Telegram ID. Результаты, маршрут и рейтинг этого рейса сохраняются на сервере."
+      : "Игрок авторизован через Telegram Mini App. Для общего рейтинга нужен подключённый backend.";
     refs.registrationForm.hidden = true;
     refs.profileSummary.hidden = false;
     refs.profileName.textContent = player.name;
     refs.profileBest.textContent = String(best);
     refs.profileRank.textContent = rank ? `#${rank}` : "—";
-    refs.profileMetaLabel.textContent = player.username ? "Telegram" : "Telegram ID";
-    refs.profileMeta.textContent = player.username ? `@${player.username}` : `#${player.telegramId}`;
+    refs.profileMetaLabel.textContent = "Роль";
+    refs.profileMeta.textContent = roleLabel(player.role || "player");
     refs.switchProfileButton.hidden = true;
     refs.profilePlayButton.hidden = false;
     refs.profilePlayButton.disabled = !runtime.isActive;
     refs.profilePlayButton.textContent = runtime.isActive ? "Играть" : "Рейс недоступен";
+    return;
+  }
+
+  if (isTelegramAuthRequired()) {
+    refs.profileTitle.textContent = "Вход только через Telegram";
+    refs.profileText.textContent =
+      "Игрок и рейтинг привязываются к Telegram ID на сервере. Открой страницу как Mini App через бота, тогда профиль подтянется автоматически.";
+    refs.registrationForm.hidden = true;
+    refs.profileSummary.hidden = true;
+    refs.switchProfileButton.hidden = true;
+    refs.profilePlayButton.hidden = true;
     return;
   }
 
@@ -750,18 +920,22 @@ function renderProfilePanel() {
 function renderFlightState() {
   const runtime = getFlightRuntime();
   const player = getCurrentPlayer();
+  const requiresTelegram = isTelegramAuthRequired() && !player;
 
   if (runtime.isActive) {
     refs.statusLabel.textContent = "В полёте ✈️";
     refs.timerWrap.hidden = false;
     refs.flightTimer.textContent = formatRemainingTime(runtime.end - runtime.now);
-    refs.playButton.disabled = false;
-    refs.playButton.textContent = player ? "Играть" : "Открыть профиль";
-    refs.flightNote.textContent = player
-      ? `Рейс активен. Сейчас играет «${player.name}».`
-      : "Рейс активен, но перед стартом нужно создать профиль или открыть Mini App внутри Telegram.";
-    refs.leaderboardCaption.textContent =
-      "При равенстве выше тот, кто достиг результата раньше. Для глобального античита нужен backend.";
+    refs.playButton.disabled = requiresTelegram;
+    refs.playButton.textContent = requiresTelegram ? "Нужен Telegram" : player ? "Играть" : "Открыть профиль";
+    refs.flightNote.textContent = requiresTelegram
+      ? "Рейс активен, но эта версия принимает игроков только через Telegram Mini App."
+      : player
+        ? `Рейс активен. Сейчас играет «${player.name}».`
+        : "Рейс активен, но перед стартом нужно создать профиль или открыть Mini App внутри Telegram.";
+    refs.leaderboardCaption.textContent = serverState.enabled
+      ? "Общий рейтинг рейса хранится на сервере. При равенстве выше тот, кто поставил рекорд раньше."
+      : "При равенстве выше тот, кто достиг результата раньше. Для глобального античита нужен backend.";
   } else if (runtime.hasEnded) {
     refs.statusLabel.textContent = "Отдыхает 💤";
     refs.timerWrap.hidden = true;
@@ -842,7 +1016,7 @@ function closeResultModal() {
 function handleRegisterSubmit(event) {
   event.preventDefault();
 
-  if (isTelegramIdentityActive()) {
+  if (isTelegramIdentityActive() || isTelegramAuthRequired()) {
     return;
   }
 
@@ -972,31 +1146,45 @@ function endGame(reason) {
     name: gameState.playerName,
   };
 
-  const bestScore = upsertBestScore(player, gameState.score);
-  const rank = getPlayerRank(player.id);
+  const finalizeResult = (bestScore) => {
+    const rank = getPlayerRank(player.id);
 
-  renderAll();
-  switchTab("leadersPanel");
+    renderAll();
+    switchTab("leadersPanel");
 
-  refs.resultTitle.textContent = gameState.score > 0 ? "Игра окончена" : "Попробуй ещё";
+    refs.resultTitle.textContent = gameState.score > 0 ? "Игра окончена" : "Попробуй ещё";
 
-  if (gameState.score > 0) {
-    refs.resultText.textContent = rank
-      ? `${reason} Ты собрал ${gameState.score} ${pluralizePoints(gameState.score)} и сейчас стоишь на месте #${rank}.`
-      : `${reason} Ты собрал ${gameState.score} ${pluralizePoints(gameState.score)}.`;
-    triggerTelegramNotice("success");
-  } else if (routeState.unlocked) {
-    refs.resultText.textContent = `${reason} Очков нет, но маршрут уже был открыт раньше.`;
-    triggerTelegramNotice("warning");
-  } else {
-    refs.resultText.textContent = `${reason} Ни один орешек не пойман, поэтому маршрут остался скрытым.`;
-    triggerTelegramNotice("error");
+    if (gameState.score > 0) {
+      refs.resultText.textContent = rank
+        ? `${reason} Ты собрал ${gameState.score} ${pluralizePoints(gameState.score)} и сейчас стоишь на месте #${rank}.`
+        : `${reason} Ты собрал ${gameState.score} ${pluralizePoints(gameState.score)}.`;
+      triggerTelegramNotice("success");
+    } else if (routeState.unlocked) {
+      refs.resultText.textContent = `${reason} Очков нет, но маршрут уже был открыт раньше.`;
+      triggerTelegramNotice("warning");
+    } else {
+      refs.resultText.textContent = `${reason} Ни один орешек не пойман, поэтому маршрут остался скрытым.`;
+      triggerTelegramNotice("error");
+    }
+
+    refs.resultScore.textContent = String(gameState.score);
+    refs.resultBest.textContent = String(bestScore);
+    refs.retryButton.hidden = !getFlightRuntime().isActive || !getCurrentPlayer();
+    openResultModal();
+  };
+
+  if (serverState.enabled && telegramState.webApp?.initData) {
+    submitScoreToServer(gameState.score, reason)
+      .then(() => {
+        finalizeResult(serverState.myBestScore);
+      })
+      .catch(() => {
+        finalizeResult(upsertBestScore(player, gameState.score));
+      });
+    return;
   }
 
-  refs.resultScore.textContent = String(gameState.score);
-  refs.resultBest.textContent = String(bestScore);
-  refs.retryButton.hidden = !getFlightRuntime().isActive || !getCurrentPlayer();
-  openResultModal();
+  finalizeResult(upsertBestScore(player, gameState.score));
 }
 
 function pluralizePoints(score) {
@@ -1351,7 +1539,12 @@ initializeTelegramMiniApp();
 switchTab(uiState.activeTabId);
 drawFrame();
 renderAll();
+bootstrapFromServer();
 
 window.setInterval(() => {
   renderAll();
 }, 1000);
+
+window.setInterval(() => {
+  bootstrapFromServer();
+}, 20000);
