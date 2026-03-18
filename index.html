@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Лягушачий рейс</title>
+  <script src="https://telegram.org/js/telegram-web-app.js?61"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="page-shell">
+    <header class="topbar-card">
+      <div class="topbar-copy">
+        <p class="eyebrow">Flight Mini Game</p>
+        <h2>Лягушачий рейс</h2>
+        <p class="section-note">Статус рейса, игра, лидеры и профиль живут на одной странице.</p>
+
+        <div class="launch-row">
+          <span class="launch-badge" id="launchBadge">Browser Preview</span>
+          <p class="launch-note" id="launchNote">
+            Страницу можно тестировать как обычный сайт, а внутри Telegram профиль будет браться из Mini App.
+          </p>
+        </div>
+      </div>
+
+      <nav class="tab-bar" aria-label="Вкладки страницы">
+        <button class="tab-button is-active" type="button" data-tab-target="flightPanel">Рейс</button>
+        <button class="tab-button" type="button" data-tab-target="leadersPanel">Лидеры</button>
+        <button class="tab-button" type="button" data-tab-target="profilePanel">Профиль</button>
+      </nav>
+    </header>
+
+    <section class="tab-panel is-active" id="flightPanel">
+      <section class="hero-card">
+        <div class="hero-copy">
+          <p class="eyebrow">Страница рейса</p>
+          <h1>Лягушачий рейс для друзей</h1>
+          <p class="hero-text">
+            Поймай хотя бы один орешек, чтобы мгновенно открыть маршрут. Игра работает только пока
+            рейс в воздухе, а результаты привязаны к локальному профилю игрока.
+          </p>
+
+          <div class="hero-status-row">
+            <div class="info-card status-card">
+              <span class="info-label">Статус</span>
+              <strong class="status-value" id="statusLabel">В полёте ✈️</strong>
+            </div>
+
+            <div class="info-card timer-card" id="timerWrap">
+              <span class="info-label">До конца рейса</span>
+              <strong class="timer-value" id="flightTimer">00ч 00м</strong>
+            </div>
+          </div>
+
+          <div class="route-card">
+            <span class="info-label">Маршрут</span>
+            <strong class="route-value" id="routeText">Маршрут скрыт</strong>
+            <p class="route-note" id="routeNote">Поймай один объект в игре, чтобы открыть направление.</p>
+          </div>
+
+          <div class="current-player-card">
+            <span class="info-label">Активный профиль</span>
+            <strong class="route-value route-value--small" id="currentPlayerLabel">Профиль не создан</strong>
+            <p class="route-note" id="currentPlayerNote">Открой вкладку «Профиль», чтобы зарегистрировать игрока.</p>
+          </div>
+
+          <div class="hero-actions">
+            <button class="primary-button" id="playButton" type="button">Играть</button>
+            <p class="flight-note" id="flightNote">Рейс активен. Игра и рейтинг открыты.</p>
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-hidden="true">
+          <div class="sun-disc"></div>
+          <div class="cloud cloud-a"></div>
+          <div class="cloud cloud-b"></div>
+          <div class="cloud cloud-c"></div>
+
+          <div class="plane-frog-illustration">
+            <div class="plane-tail"></div>
+            <div class="plane-wing"></div>
+            <div class="plane-body">
+              <div class="plane-window"></div>
+              <div class="frog-head">
+                <span class="frog-eye frog-eye-left"></span>
+                <span class="frog-eye frog-eye-right"></span>
+                <span class="frog-cheek frog-cheek-left"></span>
+                <span class="frog-cheek frog-cheek-right"></span>
+                <span class="frog-smile"></span>
+              </div>
+            </div>
+            <div class="plane-propeller"></div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="tab-panel" id="leadersPanel" hidden>
+      <section class="leaderboard-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Результаты рейса</p>
+            <h2>Таблица лидеров</h2>
+          </div>
+          <p class="section-note" id="leaderboardCaption">Лучшие результаты сохраняются в этом браузере.</p>
+        </div>
+
+        <div class="podium-grid" id="podiumCards"></div>
+
+        <div class="leaderboard-card">
+          <table class="leaderboard-table">
+            <thead>
+              <tr>
+                <th>Место</th>
+                <th>Игрок</th>
+                <th>Очки</th>
+                <th>Когда поставлен рекорд</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboardBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section class="tab-panel" id="profilePanel" hidden>
+      <section class="profile-layout">
+        <article class="profile-card">
+          <p class="eyebrow">Регистрация</p>
+          <h2 id="profileTitle">Создай профиль игрока</h2>
+          <p class="section-note" id="profileText">
+            Профиль нужен, чтобы один браузер не занимал весь рейтинг через постоянную смену имени.
+          </p>
+
+          <form id="registrationForm" class="registration-form">
+            <label class="field">
+              <span class="field-label">Имя игрока</span>
+              <input id="registrationNameInput" type="text" maxlength="20" placeholder="Например, Nikita">
+            </label>
+
+            <div class="modal-actions modal-actions--left">
+              <button class="primary-button" id="registerButton" type="submit">Зарегистрироваться</button>
+            </div>
+          </form>
+
+          <div class="profile-summary" id="profileSummary" hidden>
+            <div class="profile-stats-grid">
+              <div class="result-stat">
+                <span class="field-label">Игрок</span>
+                <strong id="profileName">-</strong>
+              </div>
+
+              <div class="result-stat">
+                <span class="field-label">Лучший результат</span>
+                <strong id="profileBest">0</strong>
+              </div>
+
+              <div class="result-stat">
+                <span class="field-label">Место</span>
+                <strong id="profileRank">—</strong>
+              </div>
+
+              <div class="result-stat">
+                <span class="field-label" id="profileMetaLabel">Профиль создан</span>
+                <strong id="profileMeta">—</strong>
+              </div>
+            </div>
+
+            <div class="modal-actions modal-actions--left">
+              <button class="ghost-button" id="switchProfileButton" type="button">Сменить игрока</button>
+              <button class="primary-button" id="profilePlayButton" type="button">Играть</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="profile-card profile-card--muted">
+          <p class="eyebrow">Правило MVP</p>
+          <h2>Один профиль на один браузер</h2>
+          <p class="section-note">
+            Это базовая защита без сервера. Она убирает простую схему «сменил имя и занял весь топ»,
+            но не заменяет настоящую серверную авторизацию.
+          </p>
+
+          <div class="rules-list">
+            <div class="rule-item">Результат хранится за профилем, а не за введённым перед игрой именем.</div>
+            <div class="rule-item">У профиля в этом браузере только одна строка в таблице лидеров.</div>
+            <div class="rule-item">Смена игрока очищает локальный рекорд прошлого профиля на этом устройстве.</div>
+            <div class="rule-item">Для настоящей защиты от мультиаккаунтов нужен сервер и авторизация пользователя.</div>
+          </div>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="startModal" hidden>
+    <div class="modal-card">
+      <button class="icon-button" id="closeStartModal" type="button" aria-label="Закрыть">×</button>
+      <p class="eyebrow">Перед стартом</p>
+      <h2>Играть как <span id="startPlayerName">Игрок</span></h2>
+      <p class="modal-text" id="startModalText">
+        Маршрут откроется после первого пойманного орешка. Чтобы сменить игрока, перейди во вкладку
+        «Профиль».
+      </p>
+
+      <div class="modal-actions">
+        <button class="ghost-button" id="cancelStartButton" type="button">Отмена</button>
+        <button class="primary-button" id="beginGameButton" type="button">Старт</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="game-overlay" id="gameOverlay" hidden>
+    <div class="game-shell">
+      <div class="game-toolbar">
+        <div class="hud-pill">
+          <span class="hud-label">Игрок</span>
+          <strong id="gamePlayerName">-</strong>
+        </div>
+        <div class="hud-pill">
+          <span class="hud-label">Счёт</span>
+          <strong id="gameScore">0</strong>
+        </div>
+        <div class="hud-pill">
+          <span class="hud-label">Промахи</span>
+          <strong id="gameMisses">0 / 3</strong>
+        </div>
+        <button class="ghost-button exit-button" id="exitGameButton" type="button">Выйти</button>
+      </div>
+
+      <div class="game-stage-frame">
+        <canvas id="gameCanvas" width="420" height="680"></canvas>
+      </div>
+
+      <p class="game-tip">Веди самолётик с лягушкой по горизонтали мышью или пальцем и лови падающие орешки.</p>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="resultModal" hidden>
+    <div class="modal-card result-modal-card">
+      <p class="eyebrow">Финиш</p>
+      <h2 id="resultTitle">Игра окончена</h2>
+      <p class="modal-text" id="resultText">Ты собрал 0 орешков.</p>
+
+      <div class="result-stats">
+        <div class="result-stat">
+          <span class="field-label">Счёт</span>
+          <strong id="resultScore">0</strong>
+        </div>
+        <div class="result-stat">
+          <span class="field-label">Лучший результат</span>
+          <strong id="resultBest">0</strong>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="ghost-button" id="closeResultButton" type="button">Закрыть</button>
+        <button class="primary-button" id="retryButton" type="button">Сыграть ещё</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
